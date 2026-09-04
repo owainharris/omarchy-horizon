@@ -23,11 +23,7 @@ wallpaper.
 - `jq`
 - Python GObject bindings with GTK 4 (`python-gobject` on Omarchy)
 
-Install the command-line dependencies through Omarchy if they are missing:
-
-```sh
-omarchy pkg add imagemagick jq
-```
+All dependencies must be available on `PATH` before the plugin is used.
 
 ## Install
 
@@ -92,7 +88,7 @@ execution-time limits to protect the long-running shell from oversized files.
 
 Span Wallpaper works locally and makes no network requests. It reads active
 monitor geometry and the image you select, runs `magick` and `jq`, and writes
-only to its state directory. It does not require `sudo` or `pkexec` and does not
+only to its state directory. It needs no elevated permissions and does not
 replace Omarchy's built-in background plugin.
 
 Like all Omarchy shell plugins, it runs unsandboxed inside Quickshell. Review
@@ -114,11 +110,10 @@ if you do not want to keep them.
 
 ## Development
 
-Clone the repository, validate it with Omarchy, and run the complete test suite:
+From an existing checkout, validate the plugin with Omarchy and run the
+complete test suite:
 
 ```sh
-git clone https://github.com/owainharris/omarchy-span-wallpaper.git
-cd omarchy-span-wallpaper
 ./test.sh
 ```
 

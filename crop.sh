@@ -8,8 +8,8 @@ fail() {
 
 [[ $# -ge 2 && $# -le 4 ]] || fail "usage: crop.sh SOURCE MONITORS_JSON [STATE_DIR] [SCALE_MODE]"
 
-command -v magick >/dev/null 2>&1 || fail "ImageMagick is required (install it with: omarchy pkg add imagemagick)"
-command -v jq >/dev/null 2>&1 || fail "jq is required (install it with: omarchy pkg add jq)"
+command -v magick >/dev/null 2>&1 || fail "ImageMagick (magick) is required"
+command -v jq >/dev/null 2>&1 || fail "jq is required"
 command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required"
 command -v timeout >/dev/null 2>&1 || fail "timeout is required (provided by coreutils)"
 

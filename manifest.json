@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "kudos.span-wallpaper",
+  "name": "Span wallpaper",
+  "version": "0.2.0",
+  "author": "Owain Harris",
+  "license": "MIT",
+  "description": "Span one image continuously across a selected group of monitors",
+  "kinds": [
+    "overlay",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "Overlay.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Span wallpaper",
+    "description": "Open the monitor-spanning wallpaper controls",
+    "category": "Compositor",
+    "aliases": [
+      "wallpaper",
+      "background",
+      "span"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "source": "/home/example/.local/state/omarchy/span-wallpaper/sources/example.jpg",
+  "createdAt": "2026-09-02T12:00:00Z",
+  "scaleMode": "fill",
+  "bounds": {
+    "x": 0,
+    "y": 0,
+    "width": 4480,
+    "height": 1440
+  },
+  "monitors": [
+    {
+      "name": "DP-1",
+      "x": 0,
+      "y": 0,
+      "width": 2560,
+      "height": 1440,
+      "file": "/home/example/.local/state/omarchy/span-wallpaper/20260902T120000-1234/DP-1-example.png"
+    },
+    {
+      "name": "HDMI-A-1",
+      "x": 2560,
+      "y": 360,
+      "width": 1920,
+      "height": 1080,
+      "file": "/home/example/.local/state/omarchy/span-wallpaper/20260902T120000-1234/HDMI-A-1-example.png"
+    }
+  ]
+}

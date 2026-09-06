@@ -35,6 +35,7 @@ const signature = model.signature(monitors)
 assert(signature === "LEFT:0:0:2560:1440|RIGHT:2560:360:1920:1080", "signature is unstable")
 
 const parsed = model.parseState(JSON.stringify({
+  version: 1,
   source: "/source.jpg",
   monitors: [
     { name: "LEFT", x: 0, y: 0, width: 10, height: 20, file: "/left.png" }
@@ -44,5 +45,7 @@ assert(parsed.error === "", "valid state did not parse")
 assert(parsed.state.scaleMode === "fill", "legacy state should default to fill")
 assert(model.cropPathFor(parsed.state, "LEFT") === "/left.png", "crop lookup failed")
 assert(model.parseState("not json").error !== "", "invalid state was accepted")
+assert(model.parseState("x".repeat(65537)).error !== "", "oversized state was accepted")
+assert(model.parseState(JSON.stringify({ version: 1, source: "", monitors: new Array(33).fill({}) })).error !== "", "oversized monitor list was accepted")
 
 console.log("SpanModel tests passed")

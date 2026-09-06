@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "id": "kudos.span-wallpaper",
-  "name": "Span wallpaper",
-  "version": "0.2.0",
+  "name": "Horizon",
+  "version": "0.3.0",
   "author": "Owain Harris",
   "license": "MIT",
   "description": "Span one image continuously across a selected group of monitors",
@@ -16,7 +16,7 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Span wallpaper",
+    "displayName": "Horizon",
     "description": "Open the monitor-spanning wallpaper controls",
     "category": "Compositor",
     "aliases": [

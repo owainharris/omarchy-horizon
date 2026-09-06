@@ -14,26 +14,32 @@ Item {
 
   property var shell: null
   property var manifest: null
-  property string omarchyPath: Quickshell.env("OMARCHY_PATH")
-
   readonly property string home: Quickshell.env("HOME")
   readonly property string stateRoot: home + "/.local/state/omarchy/span-wallpaper"
-  readonly property string statePath: stateRoot + "/state.json"
   readonly property string pluginDir: manifest && manifest.__sourceDir
     ? String(manifest.__sourceDir).replace(/\/$/, "") : ""
+  readonly property var helperEnvironment: ({
+    "HOME": home,
+    "PATH": "/usr/bin",
+    "LANG": Quickshell.env("LANG") || "C.UTF-8",
+    "XDG_RUNTIME_DIR": Quickshell.env("XDG_RUNTIME_DIR"),
+    "WAYLAND_DISPLAY": Quickshell.env("WAYLAND_DISPLAY"),
+    "DISPLAY": Quickshell.env("DISPLAY"),
+    "DBUS_SESSION_BUS_ADDRESS": Quickshell.env("DBUS_SESSION_BUS_ADDRESS"),
+    "XDG_CURRENT_DESKTOP": Quickshell.env("XDG_CURRENT_DESKTOP"),
+    "XDG_DATA_DIRS": "/usr/local/share:/usr/share",
+    "GDK_BACKEND": "wayland,x11"
+  })
 
   property bool opened: false
   property bool initialized: false
-  property bool pickingThemeImage: false
   property bool pickingFile: false
-  property bool pickerWasCancelled: false
   property bool filePickerWasCancelled: false
   property bool sourceDirty: false
   property string sourcePath: ""
   property string scaleMode: "fill"
   property string statusText: ""
   property string errorText: ""
-  property string pickerResult: ""
   property string filePickerResult: ""
   property var screenData: []
   property string screenSignature: ""
@@ -42,13 +48,37 @@ Item {
   property var stateData: SpanModel.emptyState()
   property int stateRevision: 0
   property var pendingCropJob: null
+  property bool clearRequested: false
+  property bool dismissAfterClear: false
 
   readonly property int selectedCount: countSelected(selectionRevision)
-  readonly property bool busy: cropProcess.running || clearProcess.running
+  readonly property bool busy: cropProcess.running || clearProcess.running || clearRequested || importProcess.running
   readonly property bool hasActiveSpan: stateData.source !== "" && stateData.monitors.length > 0
 
   function pluginPath(name) {
     return pluginDir ? pluginDir + "/" + name : ""
+  }
+
+  function helperCommand(action, arguments) {
+    return ["/usr/bin/python3", pluginPath("helper.py"), action].concat(arguments || [])
+  }
+
+  function processError(process, fallback) {
+    var message = String(process.stderrText || "").trim()
+    if (message.length > 512) message = message.substring(0, 512)
+    return message || fallback
+  }
+
+  function parseResponse(raw) {
+    var text = String(raw || "").trim()
+    if (!text || text.length > 65536) return null
+    try { return JSON.parse(text) } catch (error) { return null }
+  }
+
+  function readState(dismissAfter) {
+    stateReadProcess.dismissAfterRead = dismissAfter === true
+    if (!stateReadProcess.running)
+      stateReadProcess.begin(helperCommand("read"))
   }
 
   function initialize() {
@@ -56,8 +86,7 @@ Item {
     Qt.callLater(function() {
       if (root.initialized || !root.pluginDir) return
       root.initialized = true
-      initProcess.command = [root.pluginPath("state.sh"), "init", root.stateRoot]
-      initProcess.running = true
+      initProcess.begin(root.helperCommand("init"))
     })
   }
 
@@ -152,6 +181,17 @@ Item {
     errorText = ""
   }
 
+  function importSource(path) {
+    var value = String(path || "")
+    if (!value || value.length > 4096 || importProcess.running) {
+      if (value.length > 4096) errorText = "The selected image path is too long"
+      return
+    }
+    importProcess.begin(helperCommand("import", [value]))
+    statusText = "Checking image…"
+    errorText = ""
+  }
+
   function setScaleMode(mode) {
     var value = String(mode || "")
     if (["fill", "fit", "stretch"].indexOf(value) < 0 || value === scaleMode) return
@@ -197,6 +237,7 @@ Item {
   }
 
   function maybeRelayout() {
+    if (clearRequested || clearProcess.running) return
     if (!stateData.source || stateData.monitors.length === 0 || screenData.length === 0) return
 
     var wanted = ({})
@@ -213,6 +254,7 @@ Item {
   }
 
   function queueCrop(source, geometry, interactive, requestedScaleMode) {
+    if (clearRequested || clearProcess.running) return
     var mode = String(requestedScaleMode || scaleMode)
     if (["fill", "fit", "stretch"].indexOf(mode) < 0) mode = "fill"
     var job = {
@@ -230,9 +272,7 @@ Item {
     errorText = ""
     statusText = job.interactive ? "Preparing wallpaper…" : "Updating for display layout…"
     cropProcess.interactive = job.interactive
-    cropProcess.stderrText = ""
-    cropProcess.command = [pluginPath("crop.sh"), job.source, JSON.stringify(job.geometry), stateRoot, job.scaleMode]
-    cropProcess.running = true
+    cropProcess.begin(helperCommand("crop", [job.source, JSON.stringify(job.geometry), job.scaleMode]))
   }
 
   function applySpan() {
@@ -249,43 +289,49 @@ Item {
   }
 
   function clearSpan(dismissAfter) {
-    if (clearProcess.running) return
-    stateData = SpanModel.emptyState()
-    stateRevision += 1
-    sourceDirty = false
+    if (clearRequested || clearProcess.running) return
+    clearRequested = true
+    dismissAfterClear = dismissAfter === true
+    pendingCropJob = null
     statusText = "Clearing span…"
     errorText = ""
-    clearProcess.dismissAfter = dismissAfter === true
-    clearProcess.command = [pluginPath("state.sh"), "clear", stateRoot]
-    clearProcess.running = true
+    if (stateReadProcess.running) stateReadProcess.cancel()
+    if (cropProcess.running) cropProcess.cancel()
+    finishClear()
+  }
+
+  function finishClear() {
+    if (!clearRequested || cropProcess.running || stateReadProcess.running || clearProcess.running) return
+    clearProcess.dismissAfter = dismissAfterClear
+    clearProcess.begin(helperCommand("clear"))
   }
 
   function chooseThemeImage() {
-    if (themePickerProcess.running) return
-    pickerResult = ""
-    pickerWasCancelled = false
-    pickingThemeImage = true
-    opened = false
-    themePickerProcess.command = [pluginPath("pick-image.sh"), stateRoot, sourcePath]
-    themePickerProcess.running = true
+    chooseImage(true)
   }
 
   function chooseFile() {
+    chooseImage(false)
+  }
+
+  function chooseImage(themeOnly) {
     if (filePickerProcess.running) return
     filePickerResult = ""
     filePickerWasCancelled = false
     pickingFile = true
     errorText = ""
     statusText = "Choose an image in the file dialog…"
-    filePickerProcess.command = [pluginPath("pick-file.py"), sourcePath]
-    filePickerProcess.running = true
+    filePickerProcess.begin(helperCommand("pick", [sourcePath, themeOnly ? "theme" : "any"]))
   }
 
   function open(payloadJson) {
     var payload = ({})
-    try { payload = JSON.parse(payloadJson || "{}") || ({}) } catch (error) {}
+    var encodedPayload = String(payloadJson || "{}")
+    if (encodedPayload.length <= 8192) {
+      try { payload = JSON.parse(encodedPayload) || ({}) } catch (error) {}
+    }
     refreshScreens(false)
-    if (payload.source) setSource(String(payload.source))
+    if (payload.source) importSource(String(payload.source))
     else {
       sourceDirty = false
       sourcePath = stateData.source || sourcePath
@@ -293,7 +339,7 @@ Item {
 
     if (hasActiveSpan) selectStateScreens()
     else selectAllScreens()
-    statusText = hasActiveSpan ? "Span wallpaper is active" : "Select monitors and an image"
+    statusText = hasActiveSpan ? "Span is active" : "Select monitors and an image"
     errorText = ""
     opened = true
     Qt.callLater(function() { if (root.opened) keyCatcher.forceActiveFocus() })
@@ -301,50 +347,53 @@ Item {
 
   function close() {
     opened = false
-    if (themePickerProcess.running) {
-      pickerWasCancelled = true
-      pickingThemeImage = false
-      if (shell && typeof shell.hide === "function") shell.hide("omarchy.image-picker")
-      themePickerProcess.running = false
-    }
     if (filePickerProcess.running) {
       filePickerWasCancelled = true
       pickingFile = false
-      filePickerProcess.running = false
+      filePickerProcess.cancel()
     }
+    if (importProcess.running) importProcess.cancel()
   }
 
   function dismiss() {
-    opened = false
+    close()
     if (shell && typeof shell.hide === "function")
       shell.hide((manifest && manifest.id) || "kudos.span-wallpaper")
   }
 
-  Process {
+  ManagedProcess {
     id: initProcess
-    onExited: stateFile.reload()
+    supervisorPath: root.pluginPath("supervisor.py")
+    safeEnvironment: root.helperEnvironment
+    timeoutMs: 5000
+    stdoutLimit: 0
+    onExited: function(exitCode) {
+      if (exitCode === 0) root.readState(false)
+      else root.errorText = root.processError(initProcess, "Could not initialize wallpaper state")
+    }
   }
 
-  Process {
+  ManagedProcess {
     id: cropProcess
     property bool interactive: false
-    property string stderrText: ""
-
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: cropProcess.stderrText = String(text || "").trim()
-    }
+    supervisorPath: root.pluginPath("supervisor.py")
+    safeEnvironment: root.helperEnvironment
+    timeoutMs: 150000
+    stdoutLimit: 0
 
     onExited: function(exitCode) {
       var wasInteractive = interactive
       Qt.callLater(function() {
+        if (root.clearRequested) {
+          root.finishClear()
+          return
+        }
         if (exitCode === 0) {
           root.sourceDirty = false
-          root.statusText = "Span wallpaper applied"
-          stateFile.reload()
-          if (wasInteractive) root.dismiss()
+          root.statusText = "Span applied"
+          root.readState(wasInteractive)
         } else {
-          root.errorText = cropProcess.stderrText || "Could not create the monitor crops"
+          root.errorText = root.processError(cropProcess, "Could not create the monitor crops")
           root.statusText = ""
           if (wasInteractive) root.opened = true
         }
@@ -356,66 +405,41 @@ Item {
     }
   }
 
-  Process {
+  ManagedProcess {
     id: clearProcess
     property bool dismissAfter: false
-    property string stderrText: ""
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: clearProcess.stderrText = String(text || "").trim()
-    }
+    supervisorPath: root.pluginPath("supervisor.py")
+    safeEnvironment: root.helperEnvironment
+    timeoutMs: 5000
+    stdoutLimit: 0
     onExited: function(exitCode) {
+      root.clearRequested = false
       if (exitCode === 0) {
-        root.statusText = "Span wallpaper cleared"
-        stateFile.reload()
+        root.stateData = SpanModel.emptyState()
+        root.stateRevision += 1
+        root.sourceDirty = false
+        root.statusText = "Span cleared"
         if (dismissAfter) root.dismiss()
       } else {
-        root.errorText = stderrText || "Could not clear the span wallpaper"
+        root.errorText = root.processError(clearProcess, "Could not clear the span")
       }
     }
   }
 
-  Process {
-    id: themePickerProcess
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.pickerResult = String(text || "").trim()
-    }
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var message = String(text || "").trim()
-        if (message) root.errorText = message
-      }
-    }
-    onExited: function(exitCode) {
-      root.pickingThemeImage = false
-      if (root.pickerWasCancelled) return
-      if (exitCode === 0 && root.pickerResult) root.setSource(root.pickerResult)
-      root.opened = true
-      Qt.callLater(function() { if (root.opened) keyCatcher.forceActiveFocus() })
-    }
-  }
-
-  Process {
+  ManagedProcess {
     id: filePickerProcess
-    property string stderrText: ""
-
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.filePickerResult = String(text || "").trim()
-    }
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: filePickerProcess.stderrText = String(text || "").trim()
-    }
+    supervisorPath: root.pluginPath("supervisor.py")
+    safeEnvironment: root.helperEnvironment
+    timeoutMs: 120000
+    stdoutLimit: 8192
     onExited: function(exitCode) {
       root.pickingFile = false
       if (root.filePickerWasCancelled) return
-      if (exitCode === 0 && root.filePickerResult) {
-        root.setSource(root.filePickerResult)
+      var response = root.parseResponse(stdoutText)
+      if (exitCode === 0 && response && response.path) {
+        root.importSource(String(response.path))
       } else if (exitCode !== 0) {
-        root.errorText = filePickerProcess.stderrText || "Could not open the image chooser"
+        root.errorText = root.processError(filePickerProcess, "Could not open the image chooser")
         root.statusText = ""
       } else {
         root.statusText = root.sourcePath ? "Selection unchanged" : "No image selected"
@@ -425,13 +449,45 @@ Item {
     }
   }
 
-  FileView {
-    id: stateFile
-    path: root.statePath
-    watchChanges: true
-    printErrors: false
-    onLoaded: root.loadState(text())
-    onFileChanged: reload()
+  ManagedProcess {
+    id: importProcess
+    supervisorPath: root.pluginPath("supervisor.py")
+    safeEnvironment: root.helperEnvironment
+    timeoutMs: 30000
+    stdoutLimit: 8192
+    onExited: function(exitCode) {
+      if (exitCode === 0) {
+        var response = root.parseResponse(stdoutText)
+        if (response && response.path) root.setSource(String(response.path))
+        else root.errorText = "Image validation returned an invalid response"
+      } else {
+        root.errorText = root.processError(importProcess, "Could not validate the selected image")
+        root.statusText = ""
+      }
+    }
+  }
+
+  ManagedProcess {
+    id: stateReadProcess
+    property bool dismissAfterRead: false
+    supervisorPath: root.pluginPath("supervisor.py")
+    safeEnvironment: root.helperEnvironment
+    timeoutMs: 5000
+    stdoutLimit: 65536
+    onExited: function(exitCode) {
+      if (root.clearRequested) {
+        dismissAfterRead = false
+        Qt.callLater(function() { root.finishClear() })
+        return
+      }
+      if (exitCode === 0) {
+        root.loadState(stdoutText)
+        if (dismissAfterRead) root.dismiss()
+      } else {
+        root.errorText = root.processError(stateReadProcess, "Could not read wallpaper state")
+      }
+      dismissAfterRead = false
+    }
   }
 
   Timer {
@@ -450,7 +506,7 @@ Item {
 
     function refresh(): void {
       root.refreshScreens(true)
-      stateFile.reload()
+      root.readState(false)
     }
   }
 
@@ -459,6 +515,15 @@ Item {
   Component.onCompleted: {
     refreshScreens(false)
     initialize()
+  }
+
+  Component.onDestruction: {
+    initProcess.cancel()
+    cropProcess.cancel()
+    clearProcess.cancel()
+    filePickerProcess.cancel()
+    importProcess.cancel()
+    stateReadProcess.cancel()
   }
 
   // Cropped images are placed on the Bottom layer: above Omarchy's stock
@@ -558,7 +623,7 @@ Item {
             spacing: Style.spacing.xs
 
             Text {
-              text: "Span wallpaper"
+              text: "Horizon"
               color: Color.menu.text
               font.family: Style.font.menuFamily
               font.pixelSize: Style.font.title
@@ -626,6 +691,7 @@ Item {
                   width: parent.width
                   horizontalAlignment: Text.AlignHCenter
                   text: monitorRectangle.modelData.name
+                  textFormat: Text.PlainText
                   color: monitorRectangle.selected ? Color.menu.selectedText : Color.menu.text
                   font.family: Style.font.menuFamily
                   font.pixelSize: Math.min(Style.font.heading, Math.max(Style.font.caption, monitorRectangle.height / 7))
@@ -697,6 +763,7 @@ Item {
             Text {
               Layout.fillWidth: true
               text: root.shortPath(root.sourcePath)
+              textFormat: Text.PlainText
               color: Color.menu.text
               font.family: Style.font.menuFamily
               font.pixelSize: Style.font.body
@@ -783,6 +850,7 @@ Item {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: root.errorText || root.statusText
+            textFormat: Text.PlainText
             color: root.errorText ? Color.urgent : Util.alpha(Color.menu.text, 0.62)
             font.family: Style.font.menuFamily
             font.pixelSize: Style.font.caption

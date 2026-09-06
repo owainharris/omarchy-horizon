@@ -5,8 +5,17 @@ function finiteNumber(value, fallback) {
   return isFinite(number) ? number : fallback
 }
 
+function validText(value, maximum) {
+  var text = String(value || "")
+  if (!text || text.length > maximum) return false
+  for (var i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) < 32) return false
+  }
+  return true
+}
+
 function normalizeMonitors(monitors) {
-  var source = Array.isArray(monitors) ? monitors : []
+  var source = Array.isArray(monitors) ? monitors.slice(0, 32) : []
   var result = []
 
   for (var i = 0; i < source.length; i++) {
@@ -14,12 +23,16 @@ function normalizeMonitors(monitors) {
     var name = String(monitor.name || "").trim()
     var width = Math.round(finiteNumber(monitor.width, 0))
     var height = Math.round(finiteNumber(monitor.height, 0))
-    if (!name || width <= 0 || height <= 0) continue
+    var x = Math.round(finiteNumber(monitor.x, 0))
+    var y = Math.round(finiteNumber(monitor.y, 0))
+    if (!validText(name, 128) || width <= 0 || height <= 0
+        || width > 32768 || height > 32768
+        || Math.abs(x) > 1000000 || Math.abs(y) > 1000000) continue
 
     result.push({
       name: name,
-      x: Math.round(finiteNumber(monitor.x, 0)),
-      y: Math.round(finiteNumber(monitor.y, 0)),
+      x: x,
+      y: y,
       width: width,
       height: height
     })
@@ -131,34 +144,51 @@ function emptyState() {
 }
 
 function parseState(raw) {
+  var encoded = String(raw || "")
+  if (encoded.length === 0 || encoded.length > 65536)
+    return { state: emptyState(), error: "Saved span wallpaper state exceeds its size limit" }
   var state
   try {
-    state = JSON.parse(String(raw || ""))
+    state = JSON.parse(encoded)
   } catch (error) {
     return { state: emptyState(), error: "Could not parse saved span wallpaper state" }
   }
 
-  if (!state || typeof state !== "object" || !Array.isArray(state.monitors))
+  if (!state || typeof state !== "object" || state.version !== 1
+      || !Array.isArray(state.monitors) || state.monitors.length > 32)
+    return { state: emptyState(), error: "Saved span wallpaper state is invalid" }
+
+  var source = String(state.source || "")
+  var createdAt = String(state.createdAt || "")
+  if ((source && !validText(source, 4096)) || createdAt.length > 64)
     return { state: emptyState(), error: "Saved span wallpaper state is invalid" }
 
   var monitors = []
+  var names = ({})
   for (var i = 0; i < state.monitors.length; i++) {
     var item = state.monitors[i] || {}
     var normalized = normalizeMonitors([item])
     var file = String(item.file || "")
-    if (normalized.length === 0 || !file) continue
+    if (normalized.length !== 1 || !validText(file, 4096) || names[normalized[0].name] === true)
+      return { state: emptyState(), error: "Saved span wallpaper state is invalid" }
+    names[normalized[0].name] = true
     normalized[0].file = file
     monitors.push(normalized[0])
   }
 
+  var bounds = unionBounds(monitors)
+  if (bounds.width > 32768 || bounds.height > 32768
+      || bounds.width * bounds.height > 40000000)
+    return { state: emptyState(), error: "Saved span wallpaper state is invalid" }
+
   return {
     state: {
       version: 1,
-      source: String(state.source || ""),
-      createdAt: String(state.createdAt || ""),
+      source: source,
+      createdAt: createdAt,
       scaleMode: ["fill", "fit", "stretch"].indexOf(String(state.scaleMode || "")) >= 0
         ? String(state.scaleMode) : "fill",
-      bounds: unionBounds(monitors),
+      bounds: bounds,
       monitors: monitors
     },
     error: ""

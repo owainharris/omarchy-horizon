@@ -39,7 +39,7 @@ Ui.BarWidget {
     // Font Awesome's image glyph, rendered with the bar's themed icon font.
     text: "\uf03e"
     active: root.opened
-    tooltipText: "Span wallpaper"
+    tooltipText: "Horizon"
     onPressed: function(button) { root.toggle() }
   }
 }

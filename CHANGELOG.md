@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+- Prune superseded crop sets, pre-0.3.0 crop directories, and retained sources
+  that the published state no longer references, so the state directory stays
+  at one source and one set of crops.
+- Pin every text element to plain-text rendering and run the Python helpers
+  with an isolated interpreter (`-I`).
+
 ## 0.3.0
 
 - Rename the plugin to Horizon. The plugin id, commands, and state directory

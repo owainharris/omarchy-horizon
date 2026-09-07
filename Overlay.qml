@@ -60,7 +60,7 @@ Item {
   }
 
   function helperCommand(action, arguments) {
-    return ["/usr/bin/python3", pluginPath("helper.py"), action].concat(arguments || [])
+    return ["/usr/bin/python3", "-I", pluginPath("helper.py"), action].concat(arguments || [])
   }
 
   function processError(process, fallback) {
@@ -623,6 +623,7 @@ Item {
             spacing: Style.spacing.xs
 
             Text {
+              textFormat: Text.PlainText
               text: "Horizon"
               color: Color.menu.text
               font.family: Style.font.menuFamily
@@ -630,6 +631,7 @@ Item {
               font.weight: Font.DemiBold
             }
             Text {
+              textFormat: Text.PlainText
               text: "Choose the displays that should share one continuous image"
               color: Util.alpha(Color.menu.text, 0.62)
               font.family: Style.font.menuFamily
@@ -657,6 +659,7 @@ Item {
           readonly property var mapLayout: SpanModel.fitLayout(root.screenData, width, height, Style.space(30))
 
           Text {
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             visible: root.screenData.length === 0
             text: "No displays detected"
@@ -699,6 +702,7 @@ Item {
                   elide: Text.ElideRight
                 }
                 Text {
+                  textFormat: Text.PlainText
                   width: parent.width
                   horizontalAlignment: Text.AlignHCenter
                   visible: monitorRectangle.height > Style.space(70)
@@ -747,6 +751,7 @@ Item {
             }
 
             Text {
+              textFormat: Text.PlainText
               anchors.centerIn: parent
               visible: !root.sourcePath
               text: "󰋩"
@@ -770,6 +775,7 @@ Item {
               elide: Text.ElideMiddle
             }
             Text {
+              textFormat: Text.PlainText
               Layout.fillWidth: true
               text: root.selectedCount + (root.selectedCount === 1 ? " display selected" : " displays selected")
               color: Util.alpha(Color.menu.text, 0.58)
@@ -801,6 +807,7 @@ Item {
             spacing: 0
 
             Text {
+              textFormat: Text.PlainText
               text: "Scaling"
               color: Color.menu.text
               font.family: Style.font.menuFamily
@@ -808,6 +815,7 @@ Item {
               font.weight: Font.DemiBold
             }
             Text {
+              textFormat: Text.PlainText
               Layout.maximumWidth: Style.space(360)
               text: root.scaleModeDescription(root.scaleMode)
               color: Util.alpha(Color.menu.text, 0.55)

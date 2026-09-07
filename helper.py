@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import pwd
+import re
 import secrets
 import stat
 import subprocess
@@ -25,6 +27,8 @@ MAX_DIMENSION = 32_768
 MAX_OUTPUT_FILE_BYTES = 256 * 1024 * 1024
 MAX_TOOL_FILE_BYTES = 2 * 1024 * 1024 * 1024
 SYSTEM_UID = os.stat("/").st_uid
+# Crop set directories written by releases before 0.3.0.
+LEGACY_SET_PATTERN = re.compile(r"\d{8}T\d{6}-\d+")
 
 EMPTY_STATE = {
     "version": 1,
@@ -547,7 +551,70 @@ def remove_private_dir(parent_fd: int, name: str, descriptor: int) -> None:
     os.rmdir(name, dir_fd=parent_fd)
 
 
-def crop(store: StateStore, source: str, geometry_raw: str, mode: str) -> None:
+def remove_stale_dir(parent_fd: int, name: str) -> None:
+    """Remove a crop set this plugin wrote earlier, without following links."""
+    try:
+        descriptor = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW, dir_fd=parent_fd)
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        if error.errno not in (errno.ENOTDIR, errno.ELOOP):
+            raise
+        # Something other than a directory sits on our name: drop the entry itself.
+        os.unlink(name, dir_fd=parent_fd)
+        return
+    try:
+        if os.fstat(descriptor).st_uid != os.getuid():
+            raise HelperError("stale crop set has unsafe ownership")
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        for entry in os.listdir(descriptor):
+            try:
+                os.unlink(entry, dir_fd=descriptor)
+            except IsADirectoryError:
+                pass  # not something this plugin wrote; leave it in place
+    finally:
+        os.close(descriptor)
+    try:
+        os.rmdir(name, dir_fd=parent_fd)
+    except OSError as error:
+        if error.errno != errno.ENOTEMPTY:
+            raise
+
+
+def prune_store(store: StateStore, keep_sets: set[str] | None, keep_sources: set[str] | None) -> None:
+    """Drop crop sets and retained sources that no published state references."""
+    if keep_sets is not None:
+        os.lseek(store.fd, 0, os.SEEK_SET)
+        for entry in os.listdir(store.fd):
+            if entry in keep_sets:
+                continue
+            if entry.startswith("set-") or LEGACY_SET_PATTERN.fullmatch(entry):
+                remove_stale_dir(store.fd, entry)
+    if keep_sources is not None:
+        sources_fd = store.ensure_dir("sources")
+        try:
+            os.lseek(sources_fd, 0, os.SEEK_SET)
+            for entry in os.listdir(sources_fd):
+                # Dot-prefixed names are in-flight temporaries of another helper.
+                if entry in keep_sources or entry.startswith("."):
+                    continue
+                try:
+                    os.unlink(entry, dir_fd=sources_fd)
+                except (FileNotFoundError, IsADirectoryError):
+                    pass
+        finally:
+            os.close(sources_fd)
+
+
+def current_source_names(store: StateStore) -> set[str]:
+    try:
+        source = store.read_state()["source"]
+    except HelperError:
+        return set()
+    return {Path(source).name} if source else set()
+
+
+def crop(store: StateStore, source: str, geometry_raw: str, mode: str) -> tuple[str, str]:
     if len(geometry_raw.encode("utf-8")) > MAX_GEOMETRY_BYTES:
         raise HelperError("monitor geometry exceeds its size limit")
     try:
@@ -657,6 +724,7 @@ def crop(store: StateStore, source: str, geometry_raw: str, mode: str) -> None:
             os.close(output_fd)
         else:
             remove_private_dir(store.fd, output_name, output_fd)
+    return output_name, Path(source_relative).name
 
 
 def picker_initial(selected: str, theme_only: bool) -> str:
@@ -738,10 +806,14 @@ def main(arguments: list[str]) -> int:
             emit_json(store.read_state())
         elif action == "clear" and len(arguments) == 1:
             store.publish_state(dict(EMPTY_STATE))
+            prune_store(store, set(), None)
         elif action == "import" and len(arguments) == 2:
-            emit_json({"path": import_source(store, arguments[1])})
+            retained = import_source(store, arguments[1])
+            prune_store(store, None, {Path(retained).name} | current_source_names(store))
+            emit_json({"path": retained})
         elif action == "crop" and len(arguments) == 4:
-            crop(store, arguments[1], arguments[2], arguments[3])
+            output_name, source_name = crop(store, arguments[1], arguments[2], arguments[3])
+            prune_store(store, {output_name}, {source_name})
         elif action == "pick" and len(arguments) == 3:
             emit_json({"path": pick_file(arguments[1], arguments[2] == "theme")})
         else:

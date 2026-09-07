@@ -115,7 +115,9 @@ Generated crops and a retained copy of the selected source are stored in:
 ```
 
 Keeping the source lets the plugin regenerate crops after a display is plugged
-in, removed, moved, or resized. Image processing has bounded input size,
+in, removed, moved, or resized. Applying a new span removes the previous crop
+set and any retained source it no longer references, so the directory holds one
+source and one set of crops at a time. Image processing has bounded input size,
 geometry, memory, disk, output, and execution-time limits to protect the
 long-running shell from malformed or oversized files.
 

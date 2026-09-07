@@ -125,6 +125,38 @@ class HelperTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("retained image has unsafe metadata", result.stderr)
 
+    def test_prune_keeps_only_the_published_set_and_source(self) -> None:
+        geometry = [{"name": "SOLO", "x": 0, "y": 0, "width": 100, "height": 100}]
+        other = Path(self.temporary.name) / "other.png"
+        subprocess.run(["/usr/bin/magick", "-size", "50x50", "xc:green", str(other)], check=True)
+        other.chmod(0o600)
+        victim = Path(self.temporary.name) / "victim"
+        victim.write_text("keep me")
+        with helper.StateStore(self.root) as store:
+            legacy = self.root / "20260903T124849-130493"
+            legacy.mkdir(mode=0o700)
+            (legacy / "DP-1.png").write_bytes(b"old")
+            (self.root / "set-planted").symlink_to(self.temporary.name)
+            first = helper.import_source(store, str(self.source))
+            second = helper.import_source(store, str(other))
+            helper.prune_store(store, None, {Path(second).name} | helper.current_source_names(store))
+            self.assertFalse(Path(first).exists())
+            self.assertTrue(Path(second).exists())
+            set_name, source_name = helper.crop(store, second, json.dumps(geometry), "fill")
+            helper.prune_store(store, {set_name}, {source_name})
+            sets = sorted(p.name for p in self.root.iterdir() if p.name.startswith("set-") or p.name[:8].isdigit())
+            self.assertEqual(sets, [set_name])
+            self.assertEqual([p.name for p in (self.root / "sources").iterdir()], [Path(second).name])
+            self.assertEqual(victim.read_text(), "keep me")
+            self.assertFalse(legacy.exists())
+            self.assertFalse((self.root / "set-planted").is_symlink())
+            helper.crop(store, second, json.dumps(geometry), "fit")
+            self.assertEqual(len([p for p in self.root.iterdir() if p.name.startswith("set-")]), 2)
+            store.publish_state(dict(helper.EMPTY_STATE))
+            helper.prune_store(store, set(), None)
+            self.assertEqual([p for p in self.root.iterdir() if p.name.startswith("set-")], [])
+            self.assertTrue(Path(second).exists())
+
     def test_crop_pixels_match_canvas_in_all_modes(self) -> None:
         layouts = [
             [{"name": "SOLO", "x": -40, "y": 20, "width": 60, "height": 80}],

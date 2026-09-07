@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "kudos.span-wallpaper",
   "name": "Horizon",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": "Owain Harris",
   "license": "MIT",
   "description": "Span one image continuously across a selected group of monitors",

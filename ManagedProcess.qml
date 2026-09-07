@@ -29,7 +29,7 @@ Process {
     timedOut = false
     stopping = false
     command = [
-      "/usr/bin/python3", supervisorPath,
+      "/usr/bin/python3", "-I", "-S", supervisorPath,
       "--timeout-ms", String(timeoutMs),
       "--stdout-limit", String(stdoutLimit),
       "--stderr-limit", String(stderrLimit),

@@ -40,12 +40,9 @@ The plugin id stays `kudos.span-wallpaper`, so every command below is unchanged.
 - util-linux (`prlimit`, included with Omarchy)
 
 The plugin uses the system executables under `/usr/bin` and the plugin installer
-does not install these dependencies. Run this once in a terminal before enabling
-the plugin (Omarchy installs only missing packages):
-
-```sh
-omarchy pkg add imagemagick python python-gobject gtk4 util-linux
-```
+does not install these dependencies. Before enabling the plugin, install
+`imagemagick`, `python`, `python-gobject`, `gtk4` and `util-linux` with your
+package manager (most are already present on a stock Omarchy install).
 
 ## Install
 
